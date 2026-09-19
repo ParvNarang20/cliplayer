@@ -73,27 +73,7 @@ process.stdin.on('data',(data)=>{
     if (data[0] === 0x03) {
         process.exit(0)
     }
-    if (data[0] === 0x0d) {
-        if(playerProcess !== undefined){
-            playerProcess.kill("SIGINT")
-        }
-        elapsedDuration = 0
-        totalDuration = getTotalDuration(`./songs/${songMenu[userChoice]}`)
-        console.log(`You selected: ${songMenu[userChoice]}`)
-        playerProcess = spawn('vlc', ["--intf","rc",`./songs/${songMenu[userChoice]}`])
-        isPaused = false;
-    }
-    if (data[0] === 0x70) {
-        playerProcess.stdin.write("pause\n")
-        console.log("User it Play/Pause")
-        isPaused = !isPaused
-    //     if (isPaused) {
-    //         playerProcess.kill("SIGCONT")
-    //     } else {
-    //         playerProcess.kill("SIGSTOP")
-    //     }
-    //      isPaused = !isPaused
-    }
+    
 })
 
 const songMenu = ["song1.mp3", "song2.mp3","song3.mp3","song4.mp3"]
