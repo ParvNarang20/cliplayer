@@ -1,3 +1,4 @@
+const fs = require("fs");
 const { spawn } = require("child_process");
 
 process.stdin.setRawMode(true);
@@ -11,50 +12,61 @@ let elapsedDuration = 0;
 let totalDuration = 0;
 let isRepeat = false;
 let sleepTimer = 0; // seconds me (0 = OFF)
-let history = []; // Recently played songs ki list ke liye
 
-const songMenu = [
-    "song1.mp3", "song2.mp3", "song3.mp3", "song4.mp3", "song5.mp3",
-    "song6.mp3", "song7.mp3", "song8.mp3", "song9.mp3", "song10.mp3"
-];
+// recent played songs 
+let history = [];
 
-function playSong(startTime = 0) {
+// Dynamic folder reading: ./songs folder se saare songs load honge ,,,,easy way to load song in file than hardcoding in array one by one
+let songMenu = [];
+try {
+    songMenu = fs.readdirSync("./songs").filter(file => !file.startsWith("."));
+    if (songMenu.length === 0) {
+        console.log("Error: ./songs folder me koi song nahi hai!");
+        process.exit(1);
+    }
+} catch (err) {
+    console.log("Error: ./songs folder nahi mila!");
+    process.exit(1);
+}
+
+// VLC Remote Control Mode me song start karne ka function
+function playSong() {
     if (playerProcess !== undefined) {
         playerProcess.kill("SIGKILL");
     }
 
-    // Recent song history mein add karne ke liye
     const currentSong = songMenu[userChoice];
+    
+    // Recent history update
     if (history[history.length - 1] !== currentSong) {
         history.push(currentSong);
-        if (history.length > 5) history.shift(); // last 5 songs rakhega
+        if (history.length > 5) history.shift();
     }
 
-    elapsedDuration = startTime;
+    elapsedDuration = 0;
     totalDuration = 0;
-    getTotalDuration(`./songs/${songMenu[userChoice]}`);
+    getTotalDuration(`./songs/${currentSong}`);
 
-    const args = ['-I', 'dummy', '--no-video'];
-    if (startTime > 0) {
-        args.push(`--start-time=${Math.floor(startTime)}`);
-    }
-    args.push(`./songs/${songMenu[userChoice]}`);
+    // VLC ko Remote Control (rc) interface ke saath spawn 
+    playerProcess = spawn("vlc", ["--intf", "rc", `./songs/${currentSong}`], {
+        stdio: ['pipe', 'ignore', 'ignore']
+    });
 
-    playerProcess = spawn('vlc', args, { stdio: 'ignore' });
     isPaused = false;
     listSongs();
 }
 
 function nextSong() {
     userChoice = (userChoice + 1) % songMenu.length;
-    playSong(0);
+    playSong();
 }
 
 function prevSong() {
     userChoice = (userChoice - 1 + songMenu.length) % songMenu.length;
-    playSong(0);
+    playSong();
 }
 
+// macOS afinfo command se total duration
 function getTotalDuration(songPath) {
     const afinfoProcess = spawn('afinfo', [songPath]);
     afinfoProcess.stdout.on('data', (data) => {
@@ -67,7 +79,9 @@ function getTotalDuration(songPath) {
     });
 }
 
+// Terminal UI Screen
 function listSongs() {
+    // Screen clear ansi sequence
     process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
 
     console.log("--- CLI Music Player ---\n");
@@ -79,14 +93,6 @@ function listSongs() {
             console.log(`  ${ind} : ${song}`);
         }
     });
-    if (history.length > 0) {
-        console.log("\nRecently Played:");
-        history.forEach((song, i) => {
-            console.log(`  ${i + 1}. ${song}`);
-        });
-    }
-
-    console.log("\n[ $]");
 
     console.log("");
 
@@ -100,16 +106,24 @@ function listSongs() {
     console.log(`[${bar}]`);
     console.log(`Time: ${Math.round(elapsedDuration)}s / ${totalDuration}s`);
     console.log(`Status: ${isPaused ? "Paused" : "Playing"} | Repeat (r): ${isRepeat ? "ON" : "OFF"}`);
-    
+
     if (sleepTimer > 0) {
         console.log(`Sleep Timer (t): ${Math.ceil(sleepTimer / 60)} min remaining`);
     } else {
         console.log(`Sleep Timer (t): OFF`);
     }
 
+    if (history.length > 0) {
+        console.log("\nRecently Played:");
+        history.forEach((song, index) => {
+            console.log(`  ${index + 1}. ${song}`);
+        });
+    }
+
     console.log("\n[ $]");
 }
 
+// Keyboard Input Logic
 process.stdin.on('data', (data) => {
     // Exit (Ctrl + C)
     if (data[0] === 0x03) {
@@ -130,34 +144,35 @@ process.stdin.on('data', (data) => {
                 userChoice += 1;
                 listSongs();
             }
-        } else if (data[2] === 0x43) { // Right Arrow (+10s)
-            let newTime = elapsedDuration + 10;
-            if (totalDuration > 0 && newTime > totalDuration) newTime = totalDuration;
-            playSong(newTime);
-        } else if (data[2] === 0x44) { // Left Arrow (-10s)
-            let newTime = elapsedDuration - 10;
-            if (newTime < 0) newTime = 0;
-            playSong(newTime);
+        } else if (data[2] === 0x43) { // Right Arrow (+10s Seek)
+            if (playerProcess) {
+                playerProcess.stdin.write("seek +10\n");
+                elapsedDuration += 10;
+                if (totalDuration > 0 && elapsedDuration > totalDuration) elapsedDuration = totalDuration;
+                listSongs();
+            }
+        } else if (data[2] === 0x44) { // Left Arrow (-10s Seek)
+            if (playerProcess) {
+                playerProcess.stdin.write("seek -10\n");
+                elapsedDuration -= 10;
+                if (elapsedDuration < 0) elapsedDuration = 0;
+                listSongs();
+            }
         }
         return;
     }
 
-    // Enter Key
+    // Enter Key -> Song start karo
     if (data[0] === 0x0d) {
-        playSong(0);
+        playSong();
         return;
     }
 
-    // p: Play / Pause
+    // p: Play / Pause toggle via VLC stdin
     if (data[0] === 0x70) {
         if (playerProcess) {
-            if (isPaused) {
-                playerProcess.kill("SIGCONT");
-                isPaused = false;
-            } else {
-                playerProcess.kill("SIGSTOP");
-                isPaused = true;
-            }
+            playerProcess.stdin.write("pause\n");
+            isPaused = !isPaused;
             listSongs();
         }
         return;
@@ -182,7 +197,7 @@ process.stdin.on('data', (data) => {
         return;
     }
 
-    // t: Sleep Timer (OFF -> 5m -> 10m -> 15m -> OFF)
+    // t: Sleep Timer Cycle (OFF -> 5m -> 10m -> 15m -> OFF)
     if (data[0] === 0x74) {
         if (sleepTimer === 0) sleepTimer = 300;
         else if (sleepTimer === 300) sleepTimer = 600;
@@ -193,14 +208,14 @@ process.stdin.on('data', (data) => {
     }
 });
 
-// Time & Sleep Timer Loop
+// updates in every 1sec
 setInterval(() => {
     if (!isPaused && playerProcess !== undefined) {
         elapsedDuration += 1;
 
         if (totalDuration > 0 && elapsedDuration >= totalDuration) {
             if (isRepeat) {
-                playSong(0);
+                playSong();
             } else {
                 nextSong();
             }
