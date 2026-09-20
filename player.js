@@ -9,7 +9,8 @@ let playerProcess = undefined;
 
 let elapsedDuration = 0;
 let totalDuration = 0;
-let isRepeat = false; // Repeat feature flag
+let isRepeat = false;
+let sleepTimer = 0; // seconds me (0 = OFF)
 
 const songMenu = [
     "song1.mp3", "song2.mp3", "song3.mp3", "song4.mp3", "song5.mp3",
@@ -83,6 +84,12 @@ function listSongs() {
     console.log(`[${bar}]`);
     console.log(`Time: ${Math.round(elapsedDuration)}s / ${totalDuration}s`);
     console.log(`Status: ${isPaused ? "Paused" : "Playing"} | Repeat (r): ${isRepeat ? "ON" : "OFF"}`);
+    
+    if (sleepTimer > 0) {
+        console.log(`Sleep Timer (t): ${Math.ceil(sleepTimer / 60)} min remaining`);
+    } else {
+        console.log(`Sleep Timer (t): OFF`);
+    }
 
     console.log("\n[ $]");
 }
@@ -158,9 +165,19 @@ process.stdin.on('data', (data) => {
         listSongs();
         return;
     }
+
+    // t: Sleep Timer (OFF -> 5m -> 10m -> 15m -> OFF)
+    if (data[0] === 0x74) {
+        if (sleepTimer === 0) sleepTimer = 300;
+        else if (sleepTimer === 300) sleepTimer = 600;
+        else if (sleepTimer === 600) sleepTimer = 900;
+        else sleepTimer = 0;
+        listSongs();
+        return;
+    }
 });
 
-// Time & Loop
+// Time & Sleep Timer Loop
 setInterval(() => {
     if (!isPaused && playerProcess !== undefined) {
         elapsedDuration += 1;
@@ -171,6 +188,16 @@ setInterval(() => {
             } else {
                 nextSong();
             }
+        }
+    }
+
+    if (sleepTimer > 0) {
+        sleepTimer -= 1;
+        if (sleepTimer <= 0) {
+            if (playerProcess) playerProcess.kill("SIGKILL");
+            process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+            console.log("Sleep timer ended. Player stopped.");
+            process.exit(0);
         }
     }
 
