@@ -1,143 +1,180 @@
-process.stdin.setRawMode(true)
 const { spawn } = require("child_process");
 
+process.stdin.setRawMode(true);
+process.stdin.resume();
 
-// CODE FOR UP AND DOWN ARROW KEY---->>
-let userChoice = 0
-let isPaused = true
-let playerProcess = undefined
+let userChoice = 0;
+let isPaused = true;
+let playerProcess = undefined;
 
 let elapsedDuration = 0;
 let totalDuration = 0;
+let isRepeat = false; // Repeat feature flag
 
-process.stdin.on('data',(data)=>{
-    // if(data[0]===0x6b){
-    //     console.log("User Killed The Processs")
-    //     playerProcess.kill("SIGINT")
-    //     return
-    // }
-    if (data[0]===0x6e){
-        console.log("NEXT")
-        userChoice += 1
-        playerProcess.kill("SIGINT")
-        playerProcess = spawn('vlc', ["--intf","rc",`./songs/${songMenu[userChoice]}`])
-        isPaused = false;
+const songMenu = [
+    "song1.mp3", "song2.mp3", "song3.mp3", "song4.mp3", "song5.mp3",
+    "song6.mp3", "song7.mp3", "song8.mp3", "song9.mp3", "song10.mp3"
+];
 
-        elapsedDuration=0;
-        totalDuration = getTotalDuration(`./songs/${songMenu[userChoice]}`)
-
-        return
+function playSong(startTime = 0) {
+    if (playerProcess !== undefined) {
+        playerProcess.kill("SIGKILL");
     }
-    if (data[0]===0x62){
-        console.log("BACK")
-        elapsedDuration = 0;
-        userChoice -= 1
-         playerProcess.kill("SIGINT")
-        playerProcess = spawn('vlc', ["--intf","rc",`./songs/${songMenu[userChoice]}`])
-        isPaused = false;
 
+    elapsedDuration = startTime;
+    totalDuration = 0;
+    getTotalDuration(`./songs/${songMenu[userChoice]}`);
 
-        elapsedDuration=0;
-        totalDuration = getTotalDuration(`./songs/${songMenu[userChoice]}`)
-        return
+    const args = ['-I', 'dummy', '--no-video'];
+    if (startTime > 0) {
+        args.push(`--start-time=${Math.floor(startTime)}`);
     }
-    if (data[0] === 0x1b) {
-        if (data[1] === 0x5b) {
-            if (data[2] === 0x41){
-                // console.log("Up Arrow Key")
-                if (userChoice > 0){
-                userChoice -= 1
-                listSongs()
-            }
-            } else if (data[2] === 0x42){
-                if (userChoice < songMenu.length - 1){
-                userChoice += 1
-                listSongs()
-            }
-                // console.log("Down Arrow Key")
-            }
-            // else if (data[2] === 0x44){
-            //     if (userChoice > 0 ){
-            //         userChoice -= 1
-            //     }
-            // } else if (data[2] === 0x43){
-            //     if (userChoice < songMenu.length - 1){
-            //         userChoice += 1
-            //     }
-            // }
-        }
-        if (data[0] === 0x03) {
-            process.exit(0)
-        }
-    }
-    if (data[0] === 0x03) {
-        process.exit(0)
-    }
-    if (data[0] === 0x0d) {
-        if(playerProcess !== undefined){
-            playerProcess.kill("SIGINT")
-        }
-        elapsedDuration = 0
-        totalDuration = getTotalDuration(`./songs/${songMenu[userChoice]}`)
-        console.log(`You selected: ${songMenu[userChoice]}`)
-        playerProcess = spawn('vlc', ["--intf","rc",`./songs/${songMenu[userChoice]}`])
-        isPaused = false;
-    }
-    if (data[0] === 0x70) {
-        playerProcess.stdin.write("pause\n")
-        console.log("User it Play/Pause")
-        isPaused = !isPaused
-    //     if (isPaused) {
-    //         playerProcess.kill("SIGCONT")
-    //     } else {
-    //         playerProcess.kill("SIGSTOP")
-    //     }
-    //      isPaused = !isPaused
-    }
-})
+    args.push(`./songs/${songMenu[userChoice]}`);
 
-const songMenu = ["song1.mp3", "song2.mp3","song3.mp3","song4.mp3"]
-function listSongs() {
-    // process.stdout.write('\x1b[2J')
-    process.stdout.write('\x1b[2;0H')
-    process.stdout.write('\x1b[1;1H');
-    // process.stdout.write('\x1b[2J\x1b[3J\x1b[2;1H');
+    playerProcess = spawn('vlc', args, { stdio: 'ignore' });
+    isPaused = false;
+    listSongs();
+}
 
+function nextSong() {
+    userChoice = (userChoice + 1) % songMenu.length;
+    playSong(0);
+}
 
-    // console.clear()
-    songMenu.forEach((song, ind) =>{
-        if (ind == userChoice){
-            process.stdout.write(`> ${ind} : ${song}\x1B[0K\n`)
-            // console.log(`> ${ind} : ${song}`)
-        }else{
-            process.stdout.write(` ${ind} : ${song}\x1B[0K\n`)
-
-            // console.log(`${ind} : ${song}`)
-        }
-    })
-    const ratio = Math.min(100,elapsedDuration/Math.max(0,totalDuration))
-    const filledBars=Math.round(ratio*100)
-    const emptyBars = 100-filledBars
-
-    console.log(`Elapsed Duration: ${Math.round(elapsedDuration,2)} / ${totalDuration} seconds`)
-    console.log(`[ $]`)
+function prevSong() {
+    userChoice = (userChoice - 1 + songMenu.length) % songMenu.length;
+    playSong(0);
 }
 
 function getTotalDuration(songPath) {
-    console.log(`Getting total duration for ${songPath}`);
     const afinfoProcess = spawn('afinfo', [songPath]);
-
     afinfoProcess.stdout.on('data', (data) => {
         const output = data.toString();
-        totalDuration = Number(
-            output.split("estimated duration: ")[1].split(".")[0]
-        );
-    })}
-listSongs()
-setInterval(() => {
-    if(isPaused=== false && playerProcess!==undefined){
-        elapsedDuration += 0.05;
+        const duration = output.split("estimated duration: ")[1];
+        if (duration) {
+            totalDuration = Number(duration.split(".")[0]);
+            listSongs();
+        }
+    });
+}
 
+function listSongs() {
+    process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+
+    console.log("--- CLI Music Player ---\n");
+
+    songMenu.forEach((song, ind) => {
+        if (ind === userChoice) {
+            console.log(`> ${ind} : ${song}`);
+        } else {
+            console.log(`  ${ind} : ${song}`);
+        }
+    });
+
+    console.log("");
+
+    // Progress Bar
+    const ratio = totalDuration > 0 ? Math.min(1, elapsedDuration / totalDuration) : 0;
+    const barLength = 30;
+    const filled = Math.round(ratio * barLength);
+    const empty = barLength - filled;
+    const bar = "=".repeat(filled) + "-".repeat(empty);
+
+    console.log(`[${bar}]`);
+    console.log(`Time: ${Math.round(elapsedDuration)}s / ${totalDuration}s`);
+    console.log(`Status: ${isPaused ? "Paused" : "Playing"} | Repeat (r): ${isRepeat ? "ON" : "OFF"}`);
+
+    console.log("\n[ $]");
+}
+
+process.stdin.on('data', (data) => {
+    // Exit (Ctrl + C)
+    if (data[0] === 0x03) {
+        if (playerProcess) playerProcess.kill("SIGKILL");
+        process.stdout.write('\x1b[2J\x1b[3J\x1b[H');
+        process.exit(0);
     }
 
-},50)
+    // Arrow Keys
+    if (data[0] === 0x1b && data[1] === 0x5b) {
+        if (data[2] === 0x41) { // Up Arrow
+            if (userChoice > 0) {
+                userChoice -= 1;
+                listSongs();
+            }
+        } else if (data[2] === 0x42) { // Down Arrow
+            if (userChoice < songMenu.length - 1) {
+                userChoice += 1;
+                listSongs();
+            }
+        } else if (data[2] === 0x43) { // Right Arrow (+10s)
+            let newTime = elapsedDuration + 10;
+            if (totalDuration > 0 && newTime > totalDuration) newTime = totalDuration;
+            playSong(newTime);
+        } else if (data[2] === 0x44) { // Left Arrow (-10s)
+            let newTime = elapsedDuration - 10;
+            if (newTime < 0) newTime = 0;
+            playSong(newTime);
+        }
+        return;
+    }
+
+    // Enter Key
+    if (data[0] === 0x0d) {
+        playSong(0);
+        return;
+    }
+
+    // p: Play / Pause
+    if (data[0] === 0x70) {
+        if (playerProcess) {
+            if (isPaused) {
+                playerProcess.kill("SIGCONT");
+                isPaused = false;
+            } else {
+                playerProcess.kill("SIGSTOP");
+                isPaused = true;
+            }
+            listSongs();
+        }
+        return;
+    }
+
+    // n: Next Song
+    if (data[0] === 0x6e) {
+        nextSong();
+        return;
+    }
+
+    // b: Back Song
+    if (data[0] === 0x62) {
+        prevSong();
+        return;
+    }
+
+    // r: Repeat Toggle
+    if (data[0] === 0x72) {
+        isRepeat = !isRepeat;
+        listSongs();
+        return;
+    }
+});
+
+// Time & Loop
+setInterval(() => {
+    if (!isPaused && playerProcess !== undefined) {
+        elapsedDuration += 1;
+
+        if (totalDuration > 0 && elapsedDuration >= totalDuration) {
+            if (isRepeat) {
+                playSong(0);
+            } else {
+                nextSong();
+            }
+        }
+    }
+
+    listSongs();
+}, 1000);
+
+listSongs();
