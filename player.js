@@ -16,7 +16,7 @@ let sleepTimer = 0; // seconds me (0 = OFF)
 // recent played songs 
 let history = [];
 
-// Dynamic folder reading: ./songs folder se saare songs load honge ,,,,easy way to load song in file than hardcoding in array one by one
+// Dynamic folder reading: ./songs folder se saare songs load honge
 let songMenu = [];
 try {
     songMenu = fs.readdirSync("./songs").filter(file => !file.startsWith("."));
@@ -29,28 +29,32 @@ try {
     process.exit(1);
 }
 
-// VLC Remote Control Mode me song start karne ka function
-function playSong() {
+// VLC Playback with --start-time support
+function playSong(startTime = 0) {
     if (playerProcess !== undefined) {
         playerProcess.kill("SIGKILL");
     }
 
     const currentSong = songMenu[userChoice];
-    
+
     // Recent history update
     if (history[history.length - 1] !== currentSong) {
         history.push(currentSong);
         if (history.length > 5) history.shift();
     }
 
-    elapsedDuration = 0;
+    elapsedDuration = startTime;
     totalDuration = 0;
     getTotalDuration(`./songs/${currentSong}`);
 
-    // VLC ko Remote Control (rc) interface ke saath spawn 
-    playerProcess = spawn("vlc", ["--intf", "rc", `./songs/${currentSong}`], {
-        stdio: ['pipe', 'ignore', 'ignore']
-    });
+    // Dummy mode without GUI + custom start-time for instant seeking
+    const args = ['-I', 'dummy', '--no-video'];
+    if (startTime > 0) {
+        args.push(`--start-time=${Math.floor(startTime)}`);
+    }
+    args.push(`./songs/${currentSong}`);
+
+    playerProcess = spawn("vlc", args, { stdio: 'ignore' });
 
     isPaused = false;
     listSongs();
@@ -58,12 +62,12 @@ function playSong() {
 
 function nextSong() {
     userChoice = (userChoice + 1) % songMenu.length;
-    playSong();
+    playSong(0);
 }
 
 function prevSong() {
     userChoice = (userChoice - 1 + songMenu.length) % songMenu.length;
-    playSong();
+    playSong(0);
 }
 
 // macOS afinfo command se total duration
@@ -132,7 +136,7 @@ process.stdin.on('data', (data) => {
         process.exit(0);
     }
 
-    // Arrow Keys
+    // Arrow Keys Navigation & Seeking
     if (data[0] === 0x1b && data[1] === 0x5b) {
         if (data[2] === 0x41) { // Up Arrow
             if (userChoice > 0) {
@@ -145,34 +149,37 @@ process.stdin.on('data', (data) => {
                 listSongs();
             }
         } else if (data[2] === 0x43) { // Right Arrow (+10s Seek)
-            if (playerProcess) {
-                playerProcess.stdin.write("seek +10\n");
-                elapsedDuration += 10;
-                if (totalDuration > 0 && elapsedDuration > totalDuration) elapsedDuration = totalDuration;
-                listSongs();
+            let newTime = elapsedDuration + 10;
+            if (totalDuration > 0 && newTime > totalDuration) {
+                newTime = totalDuration;
             }
+            playSong(newTime);
         } else if (data[2] === 0x44) { // Left Arrow (-10s Seek)
-            if (playerProcess) {
-                playerProcess.stdin.write("seek -10\n");
-                elapsedDuration -= 10;
-                if (elapsedDuration < 0) elapsedDuration = 0;
-                listSongs();
+            let newTime = elapsedDuration - 10;
+            if (newTime < 0) {
+                newTime = 0;
             }
+            playSong(newTime);
         }
         return;
     }
 
     // Enter Key -> Song start karo
     if (data[0] === 0x0d) {
-        playSong();
+        playSong(0);
         return;
     }
 
-    // p: Play / Pause toggle via VLC stdin
+    // p: Play / Pause toggle via OS POSIX Signals
     if (data[0] === 0x70) {
         if (playerProcess) {
-            playerProcess.stdin.write("pause\n");
-            isPaused = !isPaused;
+            if (isPaused) {
+                playerProcess.kill("SIGCONT"); // Unfreeze process
+                isPaused = false;
+            } else {
+                playerProcess.kill("SIGSTOP"); // Freeze process
+                isPaused = true;
+            }
             listSongs();
         }
         return;
@@ -208,14 +215,14 @@ process.stdin.on('data', (data) => {
     }
 });
 
-// updates in every 1sec
+// Updates in every 1sec
 setInterval(() => {
     if (!isPaused && playerProcess !== undefined) {
         elapsedDuration += 1;
 
         if (totalDuration > 0 && elapsedDuration >= totalDuration) {
             if (isRepeat) {
-                playSong();
+                playSong(0);
             } else {
                 nextSong();
             }
