@@ -161,6 +161,7 @@ process.stdin.on('data', (data) => {
             }
             playSong(newTime);
         }
+        // seek Fix: VLC ke stdin pipe ki jagah ab Right/Left arrow dabane par song --start-time flag ke saath new position par instantly respawn hota hai, jisse audio freeze hona band ho gaya.
         return;
     }
 
