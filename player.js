@@ -11,6 +11,7 @@ let elapsedDuration = 0;
 let totalDuration = 0;
 let isRepeat = false;
 let sleepTimer = 0; // seconds me (0 = OFF)
+let history = []; // Recently played songs ki list ke liye
 
 const songMenu = [
     "song1.mp3", "song2.mp3", "song3.mp3", "song4.mp3", "song5.mp3",
@@ -20,6 +21,13 @@ const songMenu = [
 function playSong(startTime = 0) {
     if (playerProcess !== undefined) {
         playerProcess.kill("SIGKILL");
+    }
+
+    // Recent song history mein add karne ke liye
+    const currentSong = songMenu[userChoice];
+    if (history[history.length - 1] !== currentSong) {
+        history.push(currentSong);
+        if (history.length > 5) history.shift(); // last 5 songs rakhega
     }
 
     elapsedDuration = startTime;
@@ -71,6 +79,14 @@ function listSongs() {
             console.log(`  ${ind} : ${song}`);
         }
     });
+    if (history.length > 0) {
+        console.log("\nRecently Played:");
+        history.forEach((song, i) => {
+            console.log(`  ${i + 1}. ${song}`);
+        });
+    }
+
+    console.log("\n[ $]");
 
     console.log("");
 
